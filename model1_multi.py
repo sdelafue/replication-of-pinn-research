@@ -31,50 +31,24 @@ def get_norm_layer(norm_type='instance'):
     return norm_layer
 
 
+
 def define_net(input_nc, output_nc, ngf, norm='batch', use_dropout=False, gpu_ids=[], model_name='UNET'):
     """
-    Construct a NN model
-    Parameters
-    ----------
-    input_nc : int
-        - the number of channels in input images
-    output_nc : int
-        -- the number of channels in output images
-    ngf : int
-        -- the number of filters in the last conv layer
-    norm : string, optional
-        - normalization layer. The default is 'batch'.
-    use_dropout : string, optional
-       The default is False.
-    gpu_ids : TYPE, optional
-        DESCRIPTION. The default is [].
-    model_name : string, optional
-        DESCRIPTION. The default is 'UNET'.
-
-    Returns
-    -------
-    net : TYPE
-        DESCRIPTION.
-
+    Construct a NN model (CPU-only version)
     """
     net = None
-    use_gpu = len(gpu_ids) > 0
     norm_layer = get_norm_layer(norm_type=norm)
 
-    if use_gpu:
-        assert(torch.cuda.is_available())
+    # Always use CPU
+    if model_name == 'UNET':
+        net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout, gpu_ids=[])
+    elif model_name == 'RESNET':
+        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, gpu_ids=[])
+    elif model_name == 'URESNET':
+        net = UResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=4, gpu_ids=[])
+    elif model_name == 'URESNET_b':
+        net = UResnetGeneratorBoth(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=4, gpu_ids=[])
 
-        if model_name == 'UNET':
-            net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout, gpu_ids=gpu_ids)
-        elif model_name == 'RESNET':
-            net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, gpu_ids=gpu_ids)
-        elif model_name == 'URESNET':
-            net = UResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=4, gpu_ids=gpu_ids)
-        elif model_name == 'URESNET_b':
-            net = UResnetGeneratorBoth(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=4, gpu_ids=gpu_ids)
-
-    if len(gpu_ids) > 0:
-        net.cuda(device=gpu_ids[0])
     net.apply(weights_init)
     return net
 
