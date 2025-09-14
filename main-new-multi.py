@@ -36,7 +36,7 @@ def read_data(var, num_begin, num_end):
     Min=[]
     Max=[]
 
-    den1 = np.load('/home/mo/Documents/LBM/'+var+'.npy')
+    den1 = np.load('datasets/'+var+'.npy')
     Min.append(den1.min())
     Max.append(den1.max())
     den1 = den1[num_begin:num_end]
@@ -46,14 +46,14 @@ def read_data(var, num_begin, num_end):
     
 #%%
 n = 128
-den = np.load('/home/mo/Documents/LBM/'+'den'+'.npy')
+den = np.load('datasets/'+'den'+'.npy')
 
 
-vx = np.load('/home/mo/Documents/LBM/'+'vx'+'.npy')
+vx = np.load('datasets/'+'vx'+'.npy')
 vx_min = vx.min()
 vx_max = vx.max()
 
-vy = np.load('/home/mo/Documents/LBM/'+'vy'+'.npy')
+vy = np.load('datasets/'+'vy'+'.npy')
 vy_min = vy.min()
 vy_max = vy.max()
 den = np.around(den)
@@ -74,11 +74,11 @@ ratio_g = 0
 #%%
 
 isTrain = True
+
 model_name = 'URESNET'  # RESNET, UNET, URESNET
 input_nc   = 1
 output_nc  = 1
-gpu_id     = 0
-gpu_ids    = [gpu_id]
+gpu_ids    = []  # Run on CPU
 lr         = 0.0002
 tot_var_weight = 0.0
 batch_size = 16
@@ -87,7 +87,7 @@ Gradientxy = 0
 
 ngf        = 8
 torch.autograd.set_detect_anomaly(True)
-path = '/home/mo/Documents/LBM/weights_new/'
+path = './weights_new/'  # Use a local path for weights
 ep_num = 150
 
 train_sample_num = 1200
@@ -101,15 +101,14 @@ nety = define_net(input_nc, output_nc, ngf=ngf, gpu_ids=gpu_ids, model_name=mode
 
 Size = 128
 
-
-
+import os
 if not os.path.exists(path+'weights'):
-    os.mkdir(path+'weights')
+    os.makedirs(path+'weights', exist_ok=True)
 weights_filename = path+'weights/weights'
 
 if continue_train:
-    netx.load_state_dict(torch.load(weights_filename + 'xg_{}.pt'.format(continue_epoch)))
-    nety.load_state_dict(torch.load(weights_filename + 'yg_{}.pt'.format(continue_epoch)))
+    netx.load_state_dict(torch.load(weights_filename + 'xg_{}.pt'.format(continue_epoch), map_location=torch.device('cpu')))
+    nety.load_state_dict(torch.load(weights_filename + 'yg_{}.pt'.format(continue_epoch), map_location=torch.device('cpu')))
 
 if isTrain:
     old_lr = lr
@@ -145,8 +144,7 @@ for ep in range(ep_num):
     netx.train()
     nety.train()
     for img_in, img_out_x, img_out_y in train_loader:
-        img_in, img_out_y, img_out_x = Variable(img_in.cuda(gpu_id)),  Variable(img_out_y.cuda(gpu_id)),Variable(img_out_x.cuda(gpu_id))
-        
+        img_in, img_out_y, img_out_x = Variable(img_in), Variable(img_out_y), Variable(img_out_x)
         optimizery.zero_grad()
 
 
@@ -253,7 +251,7 @@ for ep in range(ep_num):
     netx.eval()
     nety.eval()
     for img_in, img_out_x, img_out_y in train_loader:
-        img_in, img_out_y, img_out_x = Variable(img_in.cuda(gpu_id)),  Variable(img_out_y.cuda(gpu_id)),Variable(img_out_x.cuda(gpu_id))
+        img_in, img_out_y, img_out_x = Variable(img_in), Variable(img_out_y), Variable(img_out_x)
         recx = netx.forward(img_in)
         recy = nety.forward(img_in)
         
