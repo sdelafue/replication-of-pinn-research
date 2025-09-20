@@ -136,7 +136,7 @@ val_lossesy = []
 tot_varx_2_total = 0
 tot_vary_2_total = 0
 
-##%%
+#%% Training the model
 for ep in range(ep_num):
     print ('ep #{}'.format(ep))
     train_lossx_total = 0
