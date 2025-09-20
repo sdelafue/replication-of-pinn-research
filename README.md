@@ -11,16 +11,15 @@ Robustness of the developed model is then tested for numerous variations of poro
 
 
 # Files
-The files in this repository are the following:
+- `1st-ten-epochs-only.py` outputs the **first 10 epoch** predictions for validation in the form of **two numpy arrays**. This script is indended for use on machines with limited computational power. Does not use CUDA
 
-- main-new-multi.py
-Contains the main code which needs to be run for training.
+- `main-training-script-no-cuda.py` is the main training/validation script designed to **run only using CPU power**. Each epoch uses pytorch visualizations for predicted and actual. Does not use CUDA
 
-- model1_multi.py
-Contains the deep learning model functions.
+- `npy-arr-only-training-script.py` outputs the model's predictions in the form of **two numpy arrays**. There is no cap to the number of epochs that the model will output. Does not use CUDA.
 
-- test.py
-Contains the code needed to run the test.
+- `model1-multi.py` contains the deep learning functions used during training. Does not use CUDA at the moment.
+
+- `test.py` script designed to perform testing and evaluation of model. Does not use CUDA at the moment.
 
 # Data:
 The data required to run the training and testing can be found here: <br />
