@@ -1,6 +1,6 @@
 
 
-from model1_multi import define_net, my_dataset
+from model1_multi_cpu import define_net, my_dataset
 import torch
 from torch.autograd import Variable
 import numpy as np
