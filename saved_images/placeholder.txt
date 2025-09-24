@@ -1,1 +1,1 @@
-placeholder
+This text file is purely designed to allow for the 'saved_images' folder to exist in the github reporistory. This file serves no purpose and can be ignored or deleted. 
