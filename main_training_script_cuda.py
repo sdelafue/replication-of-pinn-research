@@ -1,4 +1,4 @@
-from model1_multi_CUDA import define_net, my_dataset
+from model1_multi_cuda import define_net, my_dataset
 import torch
 import sys
 import os
@@ -481,6 +481,7 @@ np.savez('div2valtrain.npz', np.array(val_lossesx), np.array(train_lossesx))
 
 
 np.savez('divtrainlearning_ratemodel1multi_{}.npz'.format(str(ratio)), np.array(train_lossesx), np.array(train_lossesx))
+
 
 
 #%%
