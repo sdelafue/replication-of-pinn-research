@@ -1,12 +1,10 @@
-
-
 from model1_multi_cpu import define_net, my_dataset
 import torch
 from torch.autograd import Variable
 import numpy as np
 from matplotlib import pyplot as plt
 from torchsummary import summary
-
+import os # <-- Make sure os is imported
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -101,10 +99,13 @@ nety = define_net(input_nc, output_nc, ngf=ngf, gpu_ids=gpu_ids, model_name=mode
 
 Size = 128
 
-import os
 if not os.path.exists(path+'weights'):
     os.makedirs(path+'weights', exist_ok=True)
 weights_filename = path+'weights/weights'
+
+# Create the directory for saving images
+if not os.path.exists('saved_images'):
+    os.makedirs('saved_images')
 
 if continue_train:
     netx.load_state_dict(torch.load(weights_filename + 'xg_{}.pt'.format(continue_epoch), map_location=torch.device('cpu')))
@@ -203,11 +204,6 @@ for ep in range(ep_num):
         tot_vary = (ratioy)*(torch.sum(torch.abs(recy_grad_x-imgouty_grad_x))+torch.sum(torch.abs(recy_grad_y-imgouty_grad_y)))
         tot_vary_2 = (ratio2y)*(torch.sum(torch.abs(recy_grad_xx-imgouty_grad_xx))+torch.sum(torch.abs(recy_grad_yy-imgouty_grad_yy)))
         
-
-        
-        
-    
-
         
         ttvarx = tot_varx.clone()
         ttvarx2 = tot_varx_2.clone()        
@@ -218,8 +214,6 @@ for ep in range(ep_num):
         gradient_loss = ratio*torch.sum(torch.abs(recx_grad_x)) + ratioy*torch.sum(torch.abs(recy_grad_y))
 
         recy_loss =  div_loss + gradient_loss + criterion(recy, img_out_y)
-
-
         recx_loss =   div_loss + gradient_loss + criterion(recx, img_out_x)
 
         lossx = recx_loss
@@ -325,9 +319,6 @@ for ep in range(ep_num):
         val_lossy =  div_loss + gradient_loss + criterion(recy, img_out_y)
 
  
-
-        
-        
         val_lossx_total += val_lossx.cpu().data.numpy() * img_in.shape[0]
         val_lossy_total += val_lossy.cpu().data.numpy() * img_in.shape[0]
         tot_varx_2_total += tot_varx_2.cpu().data.numpy() * img_in.shape[0]
@@ -362,8 +353,7 @@ for ep in range(ep_num):
     img_in = np.rollaxis(img_in.cpu().data.numpy(), 1, 4)
     img    = img_in[0]
     plt.subplot(2, 5, 1)
-    im = plt.imshow(img[..., 0], cmap='gray')   #, vmin = img1[..., 0].min(), vmax = img1[..., 0].max()       # The values in the plot are bounded between max and min of the predictions (using vmax and vmin) so that we can see the differences in the results
- 
+    im = plt.imshow(img[..., 0], cmap='gray')
     plt.title('raw')
 
     recx  = recx.cpu().data.numpy()
@@ -379,12 +369,12 @@ for ep in range(ep_num):
     img_out = np.rollaxis(img_out_x.cpu().data.numpy(), 1, 4)
     img     = img_out[0]
     plt.subplot(2, 5, 3)
-    im = plt.imshow(img[..., 0], cmap='jet')   #, vmin = img1[..., 0].min(), vmax = img1[..., 0].max()       # The values in the plot are bounded between max and min of the predictions (using vmax and vmin) so that we can see the differences in the results
+    im = plt.imshow(img[..., 0], cmap='jet')
     plt.colorbar(im, fraction=0.046, pad=0.04)
     plt.axis('off')
     plt.title('Truth')
 
-    Img = (img[..., 0] - img1[..., 0]) / (img[..., 0].max() - img[..., 0].min())                                       # This normalization scheme is used. img1 is predictions, img is the truth, Img is the normalized error
+    Img = (img[..., 0] - img1[..., 0]) / (img[..., 0].max() - img[..., 0].min())
     plt.subplot(2, 5, 4)
     im = plt.imshow( Img , cmap='jet')
     plt.title('Error normalized')
@@ -399,16 +389,10 @@ for ep in range(ep_num):
 
     plt.tight_layout()
 
-    
-    
-    
-    
-    
     recy  = recy.cpu().data.numpy()
     recy  = np.rollaxis(recy, 1, 4)
     img1 = recy[0]
     
-    #img_in = np.rollaxis(img_in.cpu().data.numpy(), 1, 4)
     img    = img_in[0]
     plt.subplot(2, 5, 6)
     im = plt.imshow(img[..., 0], cmap='gray')   
@@ -423,12 +407,12 @@ for ep in range(ep_num):
     img_out = np.rollaxis(img_out_y.cpu().data.numpy(), 1, 4)
     img     = img_out[0]
     plt.subplot(2, 5, 8)
-    im = plt.imshow(img[..., 0], cmap='jet')   #, vmin = img1[..., 0].min(), vmax = img1[..., 0].max()       # The values in the plot are bounded between max and min of the predictions (using vmax and vmin) so that we can see the differences in the results
+    im = plt.imshow(img[..., 0], cmap='jet')
     plt.colorbar(im, fraction=0.046, pad=0.04)
     plt.axis('off')
     plt.title('Truth')
 
-    Img = (img[..., 0] - img1[..., 0]) / (img[..., 0].max() - img[..., 0].min())                                       # This normalization scheme is used. img1 is predictions, img is the truth, Img is the normalized error
+    Img = (img[..., 0] - img1[..., 0]) / (img[..., 0].max() - img[..., 0].min())
     plt.subplot(2, 5, 9)
     im = plt.imshow( Img , cmap='jet')
     plt.title('Error normalized')
@@ -443,11 +427,15 @@ for ep in range(ep_num):
 
     plt.tight_layout()
  
+    # **MODIFICATION START**
+    # Save the figure to a PNG file instead of showing it
+    save_path = os.path.join('saved_images', f'epoch_{ep}.png')
+    plt.savefig(save_path)
     
+    # Close the plot to free up memory and prevent it from displaying
+    plt.close()
+    # **MODIFICATION END**
     
-    
-    plt.show()
-
 np.savez('div2valtrain.npz', np.array(val_lossesx), np.array(train_lossesx))
 
 
