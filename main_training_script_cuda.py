@@ -1,3 +1,6 @@
+# =============================================================================
+#  1. IMPORTS AND INITIAL SETUP
+# =============================================================================
 from model1_multi_cuda import define_net, my_dataset
 import torch
 import sys
@@ -9,6 +12,9 @@ from torchsummary import summary
 import warnings
 warnings.filterwarnings("ignore")
 
+# =============================================================================
+#  2. ENVIRONMENT AND DATA VERIFICATION
+# =============================================================================
 # Check for 'Datasets' directory
 datasets_dir = 'datasets'
 if not os.path.isdir(datasets_dir):
@@ -34,7 +40,9 @@ else:
     print("CUDA not found. For CPU-based training, please run \'main-training-script-cpu.py\' instead.")
     sys.exit()
     
-
+# =============================================================================
+#  3. DATA READING FUNCTION (NOTE: This function is defined but not used later in the script)
+# =============================================================================
 def read_data(var, num_begin, num_end):
     """
     This function reads (loads) the npy file which in this case are vx, vy, and density files.
@@ -68,18 +76,25 @@ def read_data(var, num_begin, num_end):
     Den = den1
     return Den, max(Max), min(Min);
     
-#%%
-n = 128
+# =============================================================================
+#  4. DATA LOADING AND PREPROCESSING
+# =============================================================================
+n = 128 # Image dimension
 den = np.load('datasets/'+'den'+'.npy')
 
 
+# Capture the min and max values of the original velocity fields for normalization.
 vx = np.load('datasets/'+'vx'+'.npy')
 vx_min = vx.min()
 vx_max = vx.max()
-
 vy = np.load('datasets/'+'vy'+'.npy')
 vy_min = vy.min()
 vy_max = vy.max()
+
+# Preprocess the data:
+# - Round the density values.
+# - Normalize the velocity fields (vx, vy) to a range of [0, 1]. This helps
+#   stabilize training and improve model convergence.
 den = np.around(den)
 vy    = (vy - vy_min)/(vy_max - vy_min)
 vx     = (vx - vx_min)/(vx_max - vx_min)
@@ -87,16 +102,19 @@ vx     = (vx - vx_min)/(vx_max - vx_min)
 #%%
 plt.imshow(den[0,...,0])
 plt.imshow(vx[0,...,0])
+
+# =============================================================================
+#  5. HYPERPARAMETER AND CONFIGURATION SETUP
+# =============================================================================
+# Ratios (weights) for the physics-informed components of the loss function.
+# These control the influence of the first and second-order derivative penalties
 ratio = 0.00056174e-2
 ratio2 = 5e-8
 ratioy = 0.00031435e-2
 ratio2y = 5e-8
-
-
 ratio_g = 0
 
-#%%
-
+# --- Model and Training Configuration ---
 isTrain = True
 model_name = 'URESNET'  # RESNET, UNET, URESNET
 input_nc   = 1
@@ -114,12 +132,18 @@ torch.autograd.set_detect_anomaly(True)
 path = './weights_new/'  # Use a local path for weights
 ep_num = 150
 
+# --- Dataset Configuration ---
 train_sample_num = 1200
 val_sample_num   = 600
 
 continue_train = False
 continue_epoch = 50
 
+# =============================================================================
+#  6. MODEL, WEIGHTS PATH, AND OPTIMIZER INITIALIZATION
+# =============================================================================
+# Initialize two separate networks, one for predicting the x-velocity (netx)
+# and one for predicting the y-velocity (nety).
 netx = define_net(input_nc, output_nc, ngf=ngf, gpu_ids=gpu_ids, model_name=model_name)
 nety = define_net(input_nc, output_nc, ngf=ngf, gpu_ids=gpu_ids, model_name=model_name)
 
@@ -147,12 +171,17 @@ if isTrain:
     # initialize optimizers
     optimizery = torch.optim.Adam(list(nety.parameters()) + list(netx.parameters()), lr=lr, betas=(0.5, 0.999), weight_decay=0.00150)
 
-##%% 
-dset         = my_dataset(path, train_sample_num, val_sample_num, input_file=den, output1_file=vx, output2_file=vy, data_mode = 'both', train_val_test=0 )
-
-
+# =============================================================================
+#  7. DATASET AND DATALOADER CREATION
+# =============================================================================
+# Create the dataset object using the custom `my_dataset` class.
+dset = my_dataset(path, train_sample_num, val_sample_num, input_file=den, output1_file=vx, output2_file=vy, data_mode = 'both', train_val_test=0 )
 train_loader = torch.utils.data.DataLoader(dset, batch_size=batch_size, shuffle=True)
 
+# =============================================================================
+#  8. TRAINING LOOP INITIALIZATION
+# =============================================================================
+# Initialize variables to track the minimum validation loss for saving the best models.
 min_lossx = 1e5
 min_lossy = 1e5
 
@@ -164,7 +193,9 @@ val_lossesy = []
 tot_varx_2_total = 0
 tot_vary_2_total = 0
 
-##%%
+# =============================================================================
+#  9. MAIN TRAINING AND VALIDATION LOOP
+# =============================================================================
 for ep in range(ep_num):
     print ('ep #{}'.format(ep))
     train_lossx_total = 0
@@ -179,7 +210,17 @@ for ep in range(ep_num):
 
         recx = netx.forward(img_in)
         recy = nety.forward(img_in)
-
+        
+        # ---------------------------------------------------------------------
+        #  CALCULATE PHYSICS-INFORMED LOSS TERMS (GRADIENTS AND DIVERGENCE)
+        # ---------------------------------------------------------------------
+        # This section calculates the first and second-order spatial derivatives
+        # of the predicted and ground truth fields using the finite difference method.
+        # `torch.roll` is used to shift the tensor, which allows for calculating
+        # differences between neighboring pixels. This forms the "physics-informed"
+        # part of the loss, penalizing the model if its predictions violate
+        # certain physical constraints (like conservation laws).
+        
         recx_grad_x_comp1 = torch.roll(recx, shifts=(0,0,0,-1), dims=(0,0,0,3))
         recx_grad_x_comp2 = torch.roll(recx, shifts=(0,0,0,1), dims=(0,0,0,3))
         recx_grad_x = torch.abs(recx_grad_x_comp1-recx_grad_x_comp2)
@@ -242,6 +283,14 @@ for ep in range(ep_num):
         ttvarx2 = tot_varx_2.clone()        
         ttvary = tot_vary.clone()
         ttvary2 = tot_vary_2.clone() 
+
+        # ---------------------------------------------------------------------
+        #  DEFINE AND CALCULATE THE TOTAL LOSS
+        # ---------------------------------------------------------------------
+        # The total loss is a weighted sum of three components:
+        # 1. Data-driven L1 loss: `criterion(prediction, truth)`
+        # 2. Gradient loss: Penalizes the difference in first derivatives.
+        # 3. Divergence/Laplacian loss: Penalizes the second derivatives.
         
         div_loss = ratio2*torch.sum(torch.abs(recx_grad_xx)) + ratio2y*torch.sum(torch.abs(recy_grad_yy))
         gradient_loss = ratio*torch.sum(torch.abs(recx_grad_x)) + ratioy*torch.sum(torch.abs(recy_grad_y))
@@ -251,6 +300,9 @@ for ep in range(ep_num):
 
         recx_loss =   div_loss + gradient_loss + criterion(recx, img_out_x)
 
+        # ---------------------------------------------------------------------
+        #  BACKPROPAGATION AND OPTIMIZATION
+        # ---------------------------------------------------------------------
         lossx = recx_loss
         lossx.backward(retain_graph=True)     
         lossy = recy_loss
@@ -272,7 +324,7 @@ for ep in range(ep_num):
     train_lossesy.append(train_lossy_total)
     
     
-    # Run the model on validation part of the data%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # --- Validation Phase ---
     val_dset       = my_dataset(path, train_sample_num, val_sample_num, input_file=den, output1_file=vx, output2_file=vy, data_mode = 'both', train_val_test=1)
     val_loader     = torch.utils.data.DataLoader(val_dset, batch_size=batch_size, shuffle=True)
     val_lossx_total = 0
@@ -386,6 +438,11 @@ for ep in range(ep_num):
     print ('ValidationX: train loss: {}, val loss: {}'.format(train_lossx_total, val_lossx_total))
     print ('ValidationY: train loss: {}, val loss: {}'.format(train_lossy_total, val_lossy_total))
 
+    # ---------------------------------------------------------------------
+    #  VISUALIZATION
+    # ---------------------------------------------------------------------
+    # This section generates and saves a plot comparing the input, prediction,
+    # ground truth, and error for both vx and vy at the end of each epoch.
     plt.figure(figsize=(15, 5))
     
     img_in = np.rollaxis(img_in.cpu().data.numpy(), 1, 4)
@@ -476,12 +533,12 @@ for ep in range(ep_num):
     plt.savefig(f'saved_images/epoch_{ep}.png')
     plt.close() # Prevents the plot from displaying
     
-    
+# =============================================================================
+#  10. SAVE FINAL LOSS HISTORY
+# =============================================================================
+# After the training loop finishes, save the validation and training loss histories
+# to .npz files for later analysis and plotting.
 np.savez('div2valtrain.npz', np.array(val_lossesx), np.array(train_lossesx))
-
-
 np.savez('divtrainlearning_ratemodel1multi_{}.npz'.format(str(ratio)), np.array(train_lossesx), np.array(train_lossesx))
 
 
-
-#%%
