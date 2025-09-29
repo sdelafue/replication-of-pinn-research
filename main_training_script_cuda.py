@@ -12,6 +12,9 @@ from torchsummary import summary
 import warnings
 warnings.filterwarnings("ignore")
 
+# === Excel reporting additions (import) ===
+from export_velocity_report import save_velocity_report  # make sure this file is in your project root
+
 # =============================================================================
 #  2. ENVIRONMENT AND DATA VERIFICATION
 # =============================================================================
@@ -37,7 +40,7 @@ if torch.cuda.is_available():
     gpu_id = 0
     gpu_ids = [gpu_id]
 else:
-    print("CUDA not found. For CPU-based training, please run \'main-training-script-cpu.py\' instead.")
+    print("CUDA not found. For CPU-based training, please run 'main-training-script-cpu.py' instead.")
     sys.exit()
     
 # =============================================================================
@@ -178,6 +181,21 @@ if isTrain:
 dset = my_dataset(path, train_sample_num, val_sample_num, input_file=den, output1_file=vx, output2_file=vy, data_mode = 'both', train_val_test=0 )
 train_loader = torch.utils.data.DataLoader(dset, batch_size=batch_size, shuffle=True)
 
+# === Excel reporting additions (helpers & collectors) ===
+def _to_nhw(x_np):
+    x = np.asarray(x_np)
+    if x.ndim == 4 and x.shape[1] == 1:
+        return x[:, 0, ...]
+    if x.ndim == 4 and x.shape[-1] == 1:
+        return x[..., 0]
+    return x
+
+REPORT_K = 10  # number of samples to include in Excel
+_collect_vx_pred = []
+_collect_vy_pred = []
+_collect_vx_true = []
+_collect_vy_true = []
+
 # =============================================================================
 #  8. TRAINING LOOP INITIALIZATION
 # =============================================================================
@@ -274,6 +292,7 @@ for ep in range(ep_num):
         tot_vary_2 = (ratio2y)*(torch.sum(torch.abs(recy_grad_xx-imgouty_grad_xx))+torch.sum(torch.abs(recy_grad_yy-imgouty_grad_yy)))
         
 
+        
         
         
     
@@ -406,14 +425,28 @@ for ep in range(ep_num):
         val_lossy =  div_loss + gradient_loss + criterion(recy, img_out_y)
 
  
-
-        
-        
         val_lossx_total += val_lossx.cpu().data.numpy() * img_in.shape[0]
         val_lossy_total += val_lossy.cpu().data.numpy() * img_in.shape[0]
         tot_varx_2_total += tot_varx_2.cpu().data.numpy() * img_in.shape[0]
         tot_vary_2_total += tot_vary_2.cpu().data.numpy() * img_in.shape[0]
 
+        # === Excel reporting additions (collect up to REPORT_K samples) ===
+        if len(_collect_vx_pred) < REPORT_K:
+            with torch.no_grad():
+                vx_pred_np = _to_nhw(recx.detach().cpu().numpy())
+                vy_pred_np = _to_nhw(recy.detach().cpu().numpy())
+                vx_true_np = _to_nhw(img_out_x.detach().cpu().numpy())
+                vy_true_np = _to_nhw(img_out_y.detach().cpu().numpy())
+                need = REPORT_K - len(_collect_vx_pred)
+                if vx_pred_np.shape[0] > need:
+                    vx_pred_np = vx_pred_np[:need]
+                    vy_pred_np = vy_pred_np[:need]
+                    vx_true_np = vx_true_np[:need]
+                    vy_true_np = vy_true_np[:need]
+                _collect_vx_pred.append(vx_pred_np)
+                _collect_vy_pred.append(vy_pred_np)
+                _collect_vx_true.append(vx_true_np)
+                _collect_vy_true.append(vy_true_np)
 
     # calculate average validation loss
     val_lossx_total = val_lossx_total / val_sample_num
@@ -489,7 +522,6 @@ for ep in range(ep_num):
     
     
     
-    
     recy  = recy.cpu().data.numpy()
     recy  = np.rollaxis(recy, 1, 4)
     img1 = recy[0]
@@ -541,4 +573,24 @@ for ep in range(ep_num):
 np.savez('div2valtrain.npz', np.array(val_lossesx), np.array(train_lossesx))
 np.savez('divtrainlearning_ratemodel1multi_{}.npz'.format(str(ratio)), np.array(train_lossesx), np.array(train_lossesx))
 
+# === Excel reporting additions (final write) ===
+if _collect_vx_pred:
+    vx_pred_all = np.concatenate(_collect_vx_pred, axis=0)
+    vy_pred_all = np.concatenate(_collect_vy_pred, axis=0)
+    vx_true_all = np.concatenate(_collect_vx_true, axis=0)
+    vy_true_all = np.concatenate(_collect_vy_true, axis=0)
 
+    os.makedirs("Results/prediction_report", exist_ok=True)
+    save_velocity_report(
+        vx_pred=vx_pred_all,
+        vy_pred=vy_pred_all,
+        vx_true=vx_true_all,
+        vy_true=vy_true_all,
+        den=None,  # pass aligned density subset if you want masked metrics
+        out_xlsx="Results/prediction_report/predictions.xlsx",
+        title="CUDA Training Report",
+        max_sheets=min(REPORT_K, vx_pred_all.shape[0])
+    )
+    print("[report] Wrote Results/prediction_report/predictions.xlsx")
+else:
+    print("[report] Skipped report: no collected samples.")

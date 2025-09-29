@@ -1,0 +1,5 @@
+Results/
+datasets/
+saved_images/
+__pycache__/model1_multi_cpu.cpython-313.pyc
+__pycache__/export_velocity_report.cpython-313.pyc
