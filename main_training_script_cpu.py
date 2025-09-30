@@ -1,3 +1,6 @@
+# =============================================================================
+#  1. IMPORTS AND INITIAL SETUP
+# =============================================================================
 from model1_multi_cpu import define_net, my_dataset
 import torch
 from torch.autograd import Variable
@@ -13,6 +16,9 @@ from export_velocity_report import save_velocity_report
 import warnings
 warnings.filterwarnings("ignore")
 
+# =============================================================================
+#  2. DATA READING FUNCTION (NOTE: This function is defined but not used later in the script)
+# =============================================================================
 def read_data(var, num_begin, num_end):
     """
     This function reads (loads) the npy file which in this case are vx, vy, and density files.
@@ -46,24 +52,38 @@ def read_data(var, num_begin, num_end):
     Den = den1
     return Den, max(Max), min(Min);
     
-#%%
-n = 128
+# =============================================================================
+#  3. DATA LOADING AND PREPROCESSING
+# =============================================================================
+n = 128 # Image dimension
 den = np.load('datasets/'+'den'+'.npy')
 
+
+# Capture the min and max values of the original velocity fields for normalization.
 vx = np.load('datasets/'+'vx'+'.npy')
 vx_min = vx.min()
 vx_max = vx.max()
-
 vy = np.load('datasets/'+'vy'+'.npy')
 vy_min = vy.min()
 vy_max = vy.max()
+
+# Preprocess the data:
+# - Round the density values.
+# - Normalize the velocity fields (vx, vy) to a range of [0, 1]. This helps
+#   stabilize training and improve model convergence.
 den = np.around(den)
 vy    = (vy - vy_min)/(vy_max - vy_min)
 vx    = (vx - vx_min)/(vx_max - vx_min)
 
-#%%
+
 plt.imshow(den[0,...,0])
 plt.imshow(vx[0,...,0])
+
+# =============================================================================
+#  4. HYPERPARAMETER AND CONFIGURATION SETUP
+# =============================================================================
+# Ratios (weights) for the physics-informed components of the loss function.
+# These control the influence of the first and second-order derivative penalties
 ratio = 0.00056174e-2
 ratio2 = 5e-8
 ratioy = 0.00031435e-2
@@ -71,8 +91,8 @@ ratio2y = 5e-8
 
 ratio_g = 0
 
-#%%
 
+# --- Model and Training Configuration ---
 isTrain = True
 
 model_name = 'URESNET'  # RESNET, UNET, URESNET
@@ -96,11 +116,18 @@ val_sample_num   = 600
 continue_train = False
 continue_epoch = 50
 
+
+# =============================================================================
+#  5. MODEL, WEIGHTS PATH, AND OPTIMIZER INITIALIZATION
+# =============================================================================
+# Initialize two separate networks, one for predicting the x-velocity (netx)
+# and one for predicting the y-velocity (nety).
 netx = define_net(input_nc, output_nc, ngf=ngf, gpu_ids=gpu_ids, model_name=model_name)
 nety = define_net(input_nc, output_nc, ngf=ngf, gpu_ids=gpu_ids, model_name=model_name)
 
 Size = 128
 
+# Check path weights exists, if not create the path
 if not os.path.exists(path+'weights'):
     os.makedirs(path+'weights', exist_ok=True)
 weights_filename = path+'weights/weights'
@@ -121,7 +148,10 @@ if isTrain:
     # initialize optimizers
     optimizery = torch.optim.Adam(list(nety.parameters()) + list(netx.parameters()), lr=lr, betas=(0.5, 0.999), weight_decay=0.00150)
 
-##%% 
+# =============================================================================
+#  6. DATASET AND DATALOADER CREATION
+# =============================================================================
+# Create the dataset object using the custom `my_dataset` class.
 dset = my_dataset(path, train_sample_num, val_sample_num, input_file=den, output1_file=vx, output2_file=vy, data_mode='both', train_val_test=0)
 
 train_loader = torch.utils.data.DataLoader(dset, batch_size=batch_size, shuffle=True)
@@ -171,6 +201,10 @@ def _write_report(suffix="final"):
 # Write a report when Python exits normally, too
 atexit.register(lambda: _write_report("atexit"))
 
+# =============================================================================
+#  7. TRAINING LOOP INITIALIZATION
+# =============================================================================
+# Initialize variables to track the minimum validation loss for saving the best models.
 min_lossx = 1e5
 min_lossy = 1e5
 
@@ -181,7 +215,9 @@ val_lossesy = []
 tot_varx_2_total = 0
 tot_vary_2_total = 0
 
-#%% Training the model
+# =============================================================================
+#  8. MAIN TRAINING AND VALIDATION LOOP
+# =============================================================================
 try:
     for ep in range(ep_num):
         print('ep #{}'.format(ep))
@@ -195,6 +231,16 @@ try:
 
             recx = netx.forward(img_in)
             recy = nety.forward(img_in)
+
+            # ---------------------------------------------------------------------
+            #  CALCULATE PHYSICS-INFORMED LOSS TERMS (GRADIENTS AND DIVERGENCE)
+            # ---------------------------------------------------------------------
+            # This section calculates the first and second-order spatial derivatives
+            # of the predicted and ground truth fields using the finite difference method.
+            # `torch.roll` is used to shift the tensor, which allows for calculating
+            # differences between neighboring pixels. This forms the "physics-informed"
+            # part of the loss, penalizing the model if its predictions violate
+            # certain physical constraints (like conservation laws).
 
             recx_grad_x_comp1 = torch.roll(recx, shifts=(0,0,0,-1), dims=(0,0,0,3))
             recx_grad_x_comp2 = torch.roll(recx, shifts=(0,0,0,1), dims=(0,0,0,3))
@@ -246,6 +292,14 @@ try:
             ttvarx2 = tot_varx_2.clone()        
             ttvary = tot_vary.clone()
             ttvary2 = tot_vary_2.clone() 
+
+            # ---------------------------------------------------------------------
+            #  DEFINE AND CALCULATE THE TOTAL LOSS
+            # ---------------------------------------------------------------------
+            # The total loss is a weighted sum of three components:
+            # 1. Data-driven L1 loss: `criterion(prediction, truth)`
+            # 2. Gradient loss: Penalizes the difference in first derivatives.
+            # 3. Divergence/Laplacian loss: Penalizes the second derivatives.
             
             div_loss = ratio2*torch.sum(torch.abs(recx_grad_xx)) + ratio2y*torch.sum(torch.abs(recy_grad_yy))
             gradient_loss = ratio*torch.sum(torch.abs(recx_grad_x)) + ratioy*torch.sum(torch.abs(recy_grad_y))
@@ -253,6 +307,10 @@ try:
             recy_loss =  div_loss + gradient_loss + criterion(recy, img_out_y)
             recx_loss =   div_loss + gradient_loss + criterion(recx, img_out_x)
 
+            # ---------------------------------------------------------------------
+            #  BACKPROPAGATION AND OPTIMIZATION
+            # ---------------------------------------------------------------------
+            
             lossx = recx_loss
             lossx.backward(retain_graph=True)     
             lossy = recy_loss
@@ -273,7 +331,7 @@ try:
         train_lossesx.append(train_lossx_total)
         train_lossesy.append(train_lossy_total)
         
-        # Run the model on validation part of the data%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        # --- Validation Phase ---
         val_dset   = my_dataset(path, train_sample_num, val_sample_num, input_file=den, output1_file=vx, output2_file=vy, data_mode='both', train_val_test=1)
         val_loader = torch.utils.data.DataLoader(val_dset, batch_size=batch_size, shuffle=True)
         val_lossx_total = 0
@@ -403,6 +461,12 @@ try:
         print('ValidationX: train loss: {}, val loss: {}'.format(train_lossx_total, val_lossx_total))
         print('ValidationY: train loss: {}, val loss: {}'.format(train_lossy_total, val_lossy_total))
 
+        # ---------------------------------------------------------------------
+        #  VISUALIZATION
+        # ---------------------------------------------------------------------
+        # This section generates and saves a plot comparing the input, prediction,
+        # ground truth, and error for both vx and vy at the end of each epoch.
+        
         plt.figure(figsize=(15, 5))
         
         img_in = np.rollaxis(img_in.cpu().data.numpy(), 1, 4)
